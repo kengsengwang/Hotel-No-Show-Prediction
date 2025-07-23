@@ -1,1 +1,22 @@
+# Ignore virtual environments
+venv/
+myenv/
+
+# Bytecode and cache
+__pycache__/
+*.py[cod]
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+
+# Output folders
+outputs/
+results/
+
+# OS files
+.DS_Store
+Thumbs.db
 __pycache__/
