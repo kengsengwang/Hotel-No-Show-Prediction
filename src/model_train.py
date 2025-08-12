@@ -1,62 +1,104 @@
-# model_train.py
-from data_preparation import load_data, preprocess_data, split_data, prepare_pipeline
+# src/model_train.py
+# pyright: reportUnknownVariableType=false, reportUnknownMemberType=false
+from __future__ import annotations
+from typing import Dict, Union, Any, cast
+import time
+import numpy as np
+from numpy.typing import NDArray
+from pandas import DataFrame
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
-import xgboost as xgb
-from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
-import joblib  # For saving models
 
-def evaluate_model(y_true, y_pred, y_prob):
+try:
+    import xgboost as xgb  # type: ignore
+    has_xgb: bool = True
+except Exception:
+    xgb = None  # type: ignore
+    has_xgb = False
+
+Preprocess = Union[ColumnTransformer, Pipeline]
+
+
+def _tick(msg: str) -> float:
+    print(msg, flush=True)
+    return time.perf_counter()
+
+
+def _tock(t0: float, name: str) -> None:
+    print(f"[train] {name} done in {time.perf_counter() - t0:.1f}s", flush=True)
+
+
+def train_models(
+    preprocess: Preprocess,
+    X_train: DataFrame,
+    y_train: NDArray[np.int64],
+    models_to_run: tuple[str, ...] = ("logreg", "rf", "xgb"),
+) -> Dict[str, Pipeline]:
     """
-    Evaluate a model based on precision, recall, F1 score, and ROC AUC.
+    Train models with faster defaults.
+    Returns a dict of fitted Pipelines keyed by model name.
     """
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
-    roc_auc = roc_auc_score(y_true, y_prob)
-    return precision, recall, f1, roc_auc
+    models: Dict[str, Pipeline] = {}
 
-def save_model(model, filename):
-    """
-    Save the trained model to a file.
-    """
-    joblib.dump(model, filename)
+    # ---- Logistic Regression (fast, good baseline)
+    if "logreg" in models_to_run:
+        logreg = Pipeline(steps=[
+            ("preprocess", preprocess),
+            ("scale", StandardScaler(with_mean=False)),  # safe with one-hot; helps convergence
+            ("clf", LogisticRegression(
+                solver="saga",
+                penalty="l2",
+                C=1.0,
+                max_iter=3000,  # lower from 5000
+                random_state=42,
+            )),
+        ])
+        t0 = _tick("[train] fitting logreg…")
+        logreg.fit(cast(Any, X_train), cast(Any, y_train))
+        _tock(t0, "logreg")
+        models["logreg"] = logreg
 
-def main():
-    # Corrected file path (ensure no extra spaces or typos)
-    file_path = r'C:\Users\DELL\Documents\Hotel-No-Show-Prediction\data\cleaned_noshow_data.csv'
+    # ---- Random Forest (parallel; fewer trees)
+    if "rf" in models_to_run:
+        rf = Pipeline(steps=[
+            ("preprocess", preprocess),
+            ("clf", RandomForestClassifier(
+                n_estimators=200,       # 300 -> 200
+                max_depth=12,          # cap depth to speed up
+                min_samples_leaf=2,
+                n_jobs=-1,             # use all cores
+                random_state=42,
+            )),
+        ])
+        t0 = _tick("[train] fitting random forest…")
+        rf.fit(cast(Any, X_train), cast(Any, y_train))
+        _tock(t0, "rf")
+        models["rf"] = rf
 
-    # Load and preprocess data
-    df = load_data(file_path)
-    X, y, preprocessor = preprocess_data(df)
+    # ---- XGBoost (parallel; hist; fewer trees)
+    if has_xgb and xgb is not None and "xgb" in models_to_run:
+        xgb_pipe = Pipeline(steps=[
+            ("preprocess", preprocess),
+            ("clf", xgb.XGBClassifier(
+                n_estimators=350,       # 500 -> 350
+                learning_rate=0.10,     # slightly larger for fewer trees
+                max_depth=6,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                reg_lambda=1.0,
+                random_state=42,
+                n_jobs=-1,              # use all cores
+                tree_method="hist",
+                eval_metric="logloss",
+                verbosity=0,
+            )),
+        ])
+        t0 = _tick("[train] fitting xgboost…")
+        xgb_pipe.fit(cast(Any, X_train), cast(Any, y_train))
+        _tock(t0, "xgb")
+        models["xgb"] = xgb_pipe
 
-    # Split the data into training and testing sets
-    X_train, X_test, y_train, y_test = split_data(X, y)
-
-    # Prepare and train Random Forest model
-    rf_pipeline = prepare_pipeline(preprocessor, RandomForestClassifier(random_state=42))
-    rf_pipeline.fit(X_train, y_train)
-
-    # Predict and evaluate Random Forest model
-    rf_pred = rf_pipeline.predict(X_test)
-    rf_prob = rf_pipeline.predict_proba(X_test)[:, 1]
-    rf_metrics = evaluate_model(y_test, rf_pred, rf_prob)
-    print(f"Random Forest - Precision: {rf_metrics[0]}, Recall: {rf_metrics[1]}, F1-Score: {rf_metrics[2]}, ROC AUC: {rf_metrics[3]}")
-
-    # Save Random Forest model
-    save_model(rf_pipeline, 'random_forest_model.joblib')
-
-    # Prepare and train XGBoost model
-    xgb_pipeline = prepare_pipeline(preprocessor, xgb.XGBClassifier(random_state=42))
-    xgb_pipeline.fit(X_train, y_train)
-
-    # Predict and evaluate XGBoost model
-    xgb_pred = xgb_pipeline.predict(X_test)
-    xgb_prob = xgb_pipeline.predict_proba(X_test)[:, 1]
-    xgb_metrics = evaluate_model(y_test, xgb_pred, xgb_prob)
-    print(f"XGBoost - Precision: {xgb_metrics[0]}, Recall: {xgb_metrics[1]}, F1-Score: {xgb_metrics[2]}, ROC AUC: {xgb_metrics[3]}")
-
-    # Save XGBoost model
-    save_model(xgb_pipeline, 'xgboost_model.joblib')
-
-if __name__ == "__main__":
-    main()
+    return models

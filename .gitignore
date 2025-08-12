@@ -20,3 +20,13 @@ results/
 .DS_Store
 Thumbs.db
 __pycache__/
+*.ipynb_checkpoints
+*.csv
+.venv/
+venv/
+data/*.csv
+results/
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+

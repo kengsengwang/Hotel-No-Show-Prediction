@@ -1,10 +1,14 @@
-# src/config.py
+# File paths
+data_path: data/data.csv
+model_output_path: model.pkl
 
-# Paths
-DATA_PATH = "data/hotel_no_show_cleaned.csv"
-MODEL_PATH = "outputs/models"
+# Target column
+target_column: target
 
-# ML constants
-RANDOM_STATE = 42
-TEST_SIZE = 0.2
-TARGET = "no_show"
+# Train-test split
+test_size: 0.2
+random_state: 42
+
+# Model parameters (for future use)
+logistic_regression:
+  max_iter: 1000
