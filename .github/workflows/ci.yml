@@ -9,33 +9,52 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # Robustly locate a CSV in /data
       - name: Find data file
         id: find_csv
+        shell: bash
         run: |
           set -e
           FILE="$(find data -type f -name '*.csv' | head -n1 || true)"
           if [ -n "$FILE" ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "path=$FILE" >> "$GITHUB_OUTPUT"
+            echo "Found CSV: $FILE"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No CSV found under ./data"
           fi
+
+      - name: Preview CSV (first 5 lines)
+        if: steps.find_csv.outputs.found == 'true'
+        run: |
+          head -n 5 "${{ steps.find_csv.outputs.path }}"
 
       - name: Run pipeline (only if data exists)
         if: steps.find_csv.outputs.found == 'true'
         run: |
+          mkdir -p results
           python -m src.main --data "${{ steps.find_csv.outputs.path }}" --results results
+
+      # Optional: upload results as artifact
+      - name: Upload results
+        if: steps.find_csv.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: results/
