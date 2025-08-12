@@ -30,3 +30,10 @@ __pycache__/
 .ipynb_checkpoints/
 *.pyc
 
+.venv/
+venv/
+data/*.csv
+results/
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
