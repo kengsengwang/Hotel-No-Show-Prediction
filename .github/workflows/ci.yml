@@ -9,7 +9,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -23,7 +22,20 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run pipeline (only if data exists)
-        if: ${{ hashFiles('data/**/*.csv') != '' }}
+      # Robustly locate a CSV in /data
+      - name: Find data file
+        id: find_csv
         run: |
-          python -m src.main --data "$(git ls-files data/**/*.csv | head -n1)" --results results
+          set -e
+          FILE="$(find data -type f -name '*.csv' | head -n1 || true)"
+          if [ -n "$FILE" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "path=$FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run pipeline (only if data exists)
+        if: steps.find_csv.outputs.found == 'true'
+        run: |
+          python -m src.main --data "${{ steps.find_csv.outputs.path }}" --results results
